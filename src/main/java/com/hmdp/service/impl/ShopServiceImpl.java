@@ -7,6 +7,8 @@ import com.hmdp.entity.Shop;
 import com.hmdp.mapper.ShopMapper;
 import com.hmdp.service.IShopService;
 import com.hmdp.utils.RedisConstants;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,8 +29,43 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     @Resource
     StringRedisTemplate stringRedisTemplate;
 
+    @Resource
+    RedissonClient redissonClient;
+
     @Override
     public Result queryById(Long id) {
+        Shop shop = queryByIdWithMutex(id);
+        if (shop == null) return Result.fail("query shop failed");
+        return Result.ok(shop);
+    }
+
+    public Shop queryByIdWithMutex(Long id) {
+        String redisShopKey = RedisConstants.CACHE_SHOP_KEY + id;
+        String shopJSON = stringRedisTemplate.opsForValue().get(redisShopKey);
+        if (shopJSON != null)
+            return shopJSON.equals(RedisConstants.NULL_VALUE) ? null : JSONUtil.toBean(shopJSON, Shop.class);
+        Shop shop;
+        String redisShopLockKey = RedisConstants.LOCK_SHOP_KEY + id;
+        RLock lock = redissonClient.getLock(redisShopLockKey);
+        try {
+            lock.lock(RedisConstants.LOCK_SHOP_TTL, TimeUnit.SECONDS);
+            shopJSON = stringRedisTemplate.opsForValue().get(redisShopKey);
+            if (shopJSON != null)
+                return shopJSON.equals(RedisConstants.NULL_VALUE) ? null : JSONUtil.toBean(shopJSON, Shop.class);
+            shop = getById(id);
+            if (shop == null) {
+                // 缓存空值防止缓存穿透
+                stringRedisTemplate.opsForValue().set(redisShopKey, RedisConstants.NULL_VALUE, RedisConstants.CACHE_NULL_TTL, TimeUnit.MINUTES);
+            } else {
+                stringRedisTemplate.opsForValue().set(redisShopKey, JSONUtil.toJsonStr(shop), RedisConstants.CACHE_SHOP_TTL, TimeUnit.MINUTES);
+            }
+            return shop;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public Shop queryByIdRaw(Long id) {
         String redisShopKey = RedisConstants.CACHE_SHOP_KEY + id;
         String shopJSON = stringRedisTemplate.opsForValue().get(redisShopKey);
         Shop shop;
@@ -44,8 +81,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         } else {
             shop = shopJSON.equals(RedisConstants.NULL_VALUE) ? null : JSONUtil.toBean(shopJSON, Shop.class);
         }
-        if (shop == null) return Result.fail("query shop failed");
-        return Result.ok(shop);
+        return shop;
     }
 
     @Override
