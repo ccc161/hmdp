@@ -32,12 +32,17 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         String redisShopKey = RedisConstants.CACHE_SHOP_KEY + id;
         String shopJSON = stringRedisTemplate.opsForValue().get(redisShopKey);
         Shop shop;
-        boolean cached = !(shopJSON == null || shopJSON.isEmpty());
+        boolean cached = shopJSON != null;
         if (!cached) {
             shop = getById(id);
-            stringRedisTemplate.opsForValue().set(redisShopKey, JSONUtil.toJsonStr(shop), RedisConstants.CACHE_SHOP_TTL, TimeUnit.MINUTES);
+            if (shop == null) {
+                // 缓存空值防止缓存穿透
+                stringRedisTemplate.opsForValue().set(redisShopKey, RedisConstants.NULL_VALUE, RedisConstants.CACHE_NULL_TTL, TimeUnit.MINUTES);
+            } else {
+                stringRedisTemplate.opsForValue().set(redisShopKey, JSONUtil.toJsonStr(shop), RedisConstants.CACHE_SHOP_TTL, TimeUnit.MINUTES);
+            }
         } else {
-            shop = JSONUtil.toBean(shopJSON, Shop.class);
+            shop = shopJSON.equals(RedisConstants.NULL_VALUE) ? null : JSONUtil.toBean(shopJSON, Shop.class);
         }
         if (shop == null) return Result.fail("query shop failed");
         return Result.ok(shop);
