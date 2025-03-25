@@ -15,16 +15,26 @@ public class Result {
     private Object data;
     private Long total;
 
-    public static Result ok(){
+    public static Result ok() {
         return new Result(true, null, null, null);
     }
-    public static Result ok(Object data){
+
+    public static Result ok(Object data) {
         return new Result(true, null, data, null);
     }
-    public static Result ok(List<?> data, Long total){
+
+    public static Result ok(List<?> data, Long total) {
         return new Result(true, null, data, total);
     }
-    public static Result fail(String errorMsg){
+
+    public static Result fail(String errorMsg) {
         return new Result(false, errorMsg, null, null);
+    }
+
+    public static Result nullFail(String... nullNames) {
+        StringBuilder errorMsg = new StringBuilder();
+        errorMsg.append(String.join(", ", nullNames));
+        errorMsg.append(" can not be null");
+        return new Result(false, errorMsg.toString(), null, null);
     }
 }
