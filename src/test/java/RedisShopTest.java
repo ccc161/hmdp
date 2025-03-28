@@ -12,6 +12,9 @@ public class RedisShopTest {
 
     @Test
     void testSaveShop() {
-        service.saveShopToRedis(1L, 10L);
+        for (long i = 0; i < 100; i++) {
+            service.saveShopToRedis(i, 10L);
+        }
+
     }
 }

@@ -2,6 +2,7 @@ package com.hmdp.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.bean.copier.CopyOptions;
+import cn.hutool.core.lang.UUID;
 import cn.hutool.core.util.RandomUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.dto.LoginFormDTO;
@@ -22,9 +23,7 @@ import javax.servlet.http.HttpSession;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.function.BiFunction;
 
 /**
  * <p>
@@ -88,7 +87,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         }
 
 
-        String token = UUID.randomUUID().toString();
+        String token = UUID.randomUUID().toString(true);
         String tokenKey = RedisConstants.LOGIN_USER_KEY + token;
         Map<String, Object> userMap = BeanUtil.beanToMap(BeanUtil.copyProperties(user, UserDTO.class), new HashMap<>(),
                 CopyOptions.create()

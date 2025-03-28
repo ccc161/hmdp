@@ -1,9 +1,9 @@
 package com.hmdp.utils;
 
+import cn.hutool.core.lang.UUID;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
-import com.hmdp.entity.Shop;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
@@ -16,7 +16,6 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.util.Collections;
-import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -134,7 +133,7 @@ public class CacheClient {
 
         // 获取重建任务的唯一标识及随机值
         String rebuildTaskKey = getRebuildKey(returnObject, redisData.getExpireTime());
-        String rebuildTaskValue = UUID.randomUUID().toString();
+        String rebuildTaskValue = UUID.randomUUID().toString(true);
 
         Boolean lockAcquired = stringRedisTemplate.opsForValue().setIfAbsent(
                 rebuildTaskKey, rebuildTaskValue, RedisConstants.LOCK_TTL, TimeUnit.SECONDS);
