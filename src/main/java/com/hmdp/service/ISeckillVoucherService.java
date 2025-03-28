@@ -12,5 +12,5 @@ import com.hmdp.entity.SeckillVoucher;
  * @since 2022-01-04
  */
 public interface ISeckillVoucherService extends IService<SeckillVoucher> {
-
+    boolean addStock(Long voucherId, Integer add);
 }
