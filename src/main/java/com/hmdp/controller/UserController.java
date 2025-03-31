@@ -1,6 +1,7 @@
 package com.hmdp.controller;
 
 
+import com.hmdp.aspect.RateLimiter;
 import com.hmdp.dto.LoginFormDTO;
 import com.hmdp.dto.Result;
 import com.hmdp.dto.UserDTO;
@@ -72,6 +73,7 @@ public class UserController {
         return userService.logoutOtherDevices(token);
     }
 
+    @RateLimiter(rate = 2, maxPermits = 4, keyPattern = "user_{userId}_uri_{uri}")
     @GetMapping("/me")
     public Result me() {
         UserDTO user = UserHolder.getUser();
