@@ -15,5 +15,4 @@ public class LoginInterceptor implements HandlerInterceptor {
         UserDTO user = UserHolder.getUser();
         return user != null;
     }
-
 }

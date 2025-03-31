@@ -5,7 +5,16 @@ public class RedisConstants {
     public static final String LOGIN_CODE_KEY = "login:code:";
     public static final Long LOGIN_CODE_TTL = 2L;
     public static final String LOGIN_USER_KEY = "login:token:";
-    public static final Long LOGIN_USER_TTL = 60 * 24 * 365L;
+    public static final String LOGIN_USER_TOKENS_KEY = "login:user:";
+    public static final Long LOGIN_USER_TTL_SECONDS = 60 * 24 * 365L;
+
+    public static String getLoginTokenKey(String token) {
+        return LOGIN_USER_KEY + token;
+    }
+
+    public static String getLoginTokensKey(String userId) {
+        return LOGIN_USER_TOKENS_KEY + userId;
+    }
 
     public static final Long LOCK_TTL = 5L;
 

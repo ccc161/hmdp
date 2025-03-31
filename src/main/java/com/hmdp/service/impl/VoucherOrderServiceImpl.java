@@ -12,8 +12,6 @@ import com.hmdp.service.IVoucherOrderService;
 import com.hmdp.utils.RedisIdWorker;
 import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
-import org.redisson.api.RedissonClient;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -56,7 +54,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     private BlockingQueue<VoucherOrder> orderTasks = new ArrayBlockingQueue<>(1024 * 1024);
 
-    private ExecutorService SECKILL_ORDER_EXCUTOR = Executors.newSingleThreadExecutor();
+    private ExecutorService SECKILL_ORDER_EXCUTOR = Executors.newFixedThreadPool(1);
     @Resource
     private VoucherOrderMapper voucherOrderMapper;
 
@@ -109,6 +107,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     public Result seckillVoucher(Long voucherId) {
         // lua 脚本判断购买资格和库存
         int result = stringRedisTemplate.execute(SECKILL_SCRIPT, Collections.emptyList(), voucherId.toString(), UserHolder.getUser().getId().toString()).intValue();
+        log.debug("lua script result in seckill : {}", result);
         if (result == 1) {
             return Result.fail("sold out");
         }
@@ -122,7 +121,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             voucherOrder.setVoucherId(voucherId);
             voucherOrder.setUserId(UserHolder.getUser().getId());
             orderTasks.add(voucherOrder);
-            return Result.ok(orderId);
+            return Result.ok("orderId:" + orderId);
         }
         return Result.fail("unknown error");
     }
