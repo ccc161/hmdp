@@ -7,6 +7,7 @@ import cn.hutool.json.JSONUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
@@ -15,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -28,6 +30,15 @@ public class CacheClient {
     private final RedissonClient redissonClient;
     private static final ExecutorService CACHE_REBUILD_EXECUTOR = Executors.newFixedThreadPool(8);
     private static final char[] HEX_CHARS = "0123456789abcdef".toCharArray();
+    private static final DefaultRedisScript<Long> DELETE_REBUILD_LOCK_SCRIPT;
+    private static final DefaultRedisScript<Long> REBUILD_SCRIPT;
+
+    static {
+        DELETE_REBUILD_LOCK_SCRIPT = new DefaultRedisScript<>();
+        DELETE_REBUILD_LOCK_SCRIPT.setLocation(new ClassPathResource("/lua/cache/delete_rebuild_lock.lua"));
+        REBUILD_SCRIPT = new DefaultRedisScript<>();
+        REBUILD_SCRIPT.setLocation(new ClassPathResource("/lua/cache/rebuild.lua"));
+    }
 
     private String getRebuildKey(Object o, LocalDateTime localDateTime) {
         String input = o.toString() + localDateTime;
@@ -151,20 +162,14 @@ public class CacheClient {
                     RedisData<ReturnType> returnTypeRedisData = new RedisData<>();
                     returnTypeRedisData.setExpireTime(LocalDateTime.now().plus(time, TimeUnitConverter.toTemporalUnit(timeUnit)));
                     returnTypeRedisData.setData(applied);
-                    stringRedisTemplate.opsForValue().set(redisKey, JSONUtil.toJsonStr(returnTypeRedisData));
+                    stringRedisTemplate.execute(REBUILD_SCRIPT, Arrays.asList(rebuildTaskKey, redisKey), rebuildTaskValue, JSONUtil.toJsonStr(returnTypeRedisData));
                 } catch (Exception ex) {
                     log.error("Error rebuilding cache for {} key {}: {}", returnTypeClass, key, ex.getMessage());
                 } finally {
                     log.debug("Deleting rebuild task key {}", rebuildTaskKey);
-                    final String LUA_SCRIPT =
-                            "if redis.call('get', KEYS[1]) == ARGV[1] then " +
-                                    "   return redis.call('del', KEYS[1]) " +
-                                    "else " +
-                                    "   return 0 " +
-                                    "end";
                     try {
                         stringRedisTemplate.execute(
-                                new DefaultRedisScript<>(LUA_SCRIPT, Long.class),
+                                DELETE_REBUILD_LOCK_SCRIPT,
                                 Collections.singletonList(rebuildTaskKey),
                                 rebuildTaskValue
                         );
