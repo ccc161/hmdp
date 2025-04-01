@@ -1,6 +1,7 @@
 package com.hmdp.controller;
 
 
+import com.hmdp.aspect.RateLimiter;
 import com.hmdp.dto.Result;
 import com.hmdp.service.IVoucherOrderService;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -24,9 +25,9 @@ public class VoucherOrderController {
     @Resource
     IVoucherOrderService iVoucherOrderService;
 
+    @RateLimiter(rate = 1, maxPermits = 2, keyPattern = "user_{userId}_uri_{uri}")
     @PostMapping("seckill/{id}")
     public Result seckillVoucher(@PathVariable("id") Long voucherId) {
-
         return iVoucherOrderService.seckillVoucher(voucherId);
     }
 }
