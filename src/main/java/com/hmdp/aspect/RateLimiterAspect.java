@@ -22,7 +22,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.io.IOException;
 import java.lang.reflect.Method;
-import java.util.concurrent.TimeUnit;
+import java.time.Duration;
 
 @Aspect
 @Component
@@ -62,8 +62,8 @@ public class RateLimiterAspect {
         RRateLimiter limiter = redissonClient.getRateLimiter(rateLimitKey);
 
         // 初始化限流规则
-        limiter.trySetRate(RateType.OVERALL, effectiveLimiter.rate(), effectiveLimiter.maxPermits(), RateIntervalUnit.SECONDS);
-        boolean acquired = limiter.tryAcquire(effectiveLimiter.timeoutMillis(), TimeUnit.MILLISECONDS);
+        limiter.trySetRate(RateType.OVERALL, effectiveLimiter.rate(), Duration.ofSeconds(effectiveLimiter.durationSeconds()));
+        boolean acquired = limiter.tryAcquire(Duration.ofMillis(effectiveLimiter.timeoutMillis()));
         if (!acquired) {
             return Result.ok(LIMIT_RATE_INFO);
         }

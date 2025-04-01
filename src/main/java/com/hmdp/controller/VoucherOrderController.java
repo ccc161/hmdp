@@ -25,7 +25,7 @@ public class VoucherOrderController {
     @Resource
     IVoucherOrderService iVoucherOrderService;
 
-    @RateLimiter(rate = 1, maxPermits = 2, keyPattern = "user_{userId}_uri_{uri}")
+    @RateLimiter(rate = 1, durationSeconds = 1, keyPattern = "user_{userId}_uri_{uri}")
     @PostMapping("seckill/{id}")
     public Result seckillVoucher(@PathVariable("id") Long voucherId) {
         return iVoucherOrderService.seckillVoucher(voucherId);

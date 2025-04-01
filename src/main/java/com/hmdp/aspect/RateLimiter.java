@@ -9,14 +9,14 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface RateLimiter {
     /**
-     * 每秒生成令牌数
+     * 限流数
      */
     long rate() default 3;
 
     /**
-     * 最多获取令牌数（突发流量）
+     * 限流时间区间长度
      */
-    long maxPermits() default 10;
+    long durationSeconds() default 10;
 
     /**
      * 等待令牌超时时间（毫秒）

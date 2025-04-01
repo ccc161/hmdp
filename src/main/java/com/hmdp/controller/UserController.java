@@ -73,7 +73,7 @@ public class UserController {
         return userService.logoutOtherDevices(token);
     }
 
-    @RateLimiter(rate = 2, maxPermits = 4, keyPattern = "user_{userId}_uri_{uri}")
+    @RateLimiter(rate = 1, durationSeconds = 60, keyPattern = "user_{userId}_uri_{uri}")
     @GetMapping("/me")
     public Result me() {
         UserDTO user = UserHolder.getUser();
