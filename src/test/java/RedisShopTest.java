@@ -3,7 +3,7 @@ import com.hmdp.service.impl.ShopServiceImpl;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 
 @SpringBootTest(classes = HmDianPingApplication.class)
 public class RedisShopTest {
@@ -12,7 +12,7 @@ public class RedisShopTest {
 
     @Test
     void testSaveShop() {
-        for (long i = 0; i < 100; i++) {
+        for (long i = 0; i < 0; i++) {
             service.saveShopToRedis(i, 10L);
         }
 

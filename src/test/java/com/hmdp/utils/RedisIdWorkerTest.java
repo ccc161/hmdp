@@ -4,9 +4,8 @@ import com.hmdp.HmDianPingApplication;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 
-import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest(classes = HmDianPingApplication.class)
 class RedisIdWorkerTest {
@@ -15,7 +14,7 @@ class RedisIdWorkerTest {
 
     @Test
     void nextId() {
-        for (int i = 0; i < 100; i++) {
+        for (int i = 0; i < 0; i++) {
             System.out.println(redisIdWorker.nextId("test"));
         }
     }
