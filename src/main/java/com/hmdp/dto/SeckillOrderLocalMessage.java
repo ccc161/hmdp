@@ -1,7 +1,6 @@
-package com.hmdp.entity;
+package com.hmdp.dto;
 
 import com.baomidou.mybatisplus.annotation.*;
-import lombok.Builder;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.experimental.Accessors;
@@ -25,7 +24,7 @@ public class SeckillOrderLocalMessage {
     private Integer businessType;
 
     /**
-     * 消息状态：0-创建成功 1-MQ发送成功 2-MQ发送失败 3-处理中 4-处理成功 5-处理失败
+     * 消息状态：0-待发送，1-发送失败，2-发送成功
      */
     private Integer status;
 
@@ -33,6 +32,11 @@ public class SeckillOrderLocalMessage {
      * 消息内容（JSON格式存储订单关键信息）
      */
     private String content;
+
+    /**
+     * 下次发送时间
+     */
+    private Date nextSendTime;
 
     /**
      * 重试次数
@@ -61,5 +65,4 @@ public class SeckillOrderLocalMessage {
      */
     @Version
     private Integer version;
-
 }

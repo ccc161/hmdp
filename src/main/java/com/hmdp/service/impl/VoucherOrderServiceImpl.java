@@ -1,50 +1,33 @@
 package com.hmdp.service.impl;
 
-import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.dto.Result;
-import com.hmdp.entity.SeckillOrderLocalMessage;
-import com.hmdp.entity.User;
+import com.hmdp.dto.SeckillOrderLocalMessage;
 import com.hmdp.entity.VoucherOrder;
 import com.hmdp.mapper.VoucherOrderMapper;
+import com.hmdp.service.IMessageQueueService;
 import com.hmdp.service.ISeckillOrderLocalMessageService;
-import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
+import com.hmdp.utils.Combine;
 import com.hmdp.utils.RedisIdWorker;
 import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.AmqpException;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
-import org.springframework.amqp.rabbit.connection.CorrelationData;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import jakarta.annotation.Resource;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.Collections;
 import java.util.Optional;
-import java.util.concurrent.ExecutorService;
-
-import static com.hmdp.config.RabbitMQConfig.*;
-import static com.hmdp.utils.MessageConstants.*;
-import static com.hmdp.utils.OrderConstants.TYPE_SECKILL;
 
 @Service
 @Slf4j
 public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, VoucherOrder> implements IVoucherOrderService {
     @Resource
     StringRedisTemplate stringRedisTemplate;
-    @Resource
-    @Qualifier("seckillRabbitTemplate")
-    private RabbitTemplate seckillRabbitTemplate;
-    @Resource(name = "threadPoolExecutor")
-    private ExecutorService executorService;
     private static final DefaultRedisScript<Long> REDUCE_STOCK_SCRIPT;
     private static final DefaultRedisScript<Long> ROLLBACK_STOCK_SCRIPT;
     @Resource
@@ -56,6 +39,9 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     @Resource
     ISeckillOrderLocalMessageService seckillOrderLocalMessageService;
 
+    @Resource
+    IMessageQueueService messageQueueService;
+
     static {
         REDUCE_STOCK_SCRIPT = new DefaultRedisScript<>();
         REDUCE_STOCK_SCRIPT.setLocation(new ClassPathResource("lua/seckill/reduceStock.lua"));
@@ -65,11 +51,11 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         ROLLBACK_STOCK_SCRIPT.setResultType(Long.class);
     }
 
-    private Optional<VoucherOrder> createNewVoucherOrderTransaction(Long voucherId) {
+    private Optional<Combine<VoucherOrder, SeckillOrderLocalMessage>> createNewVoucherOrderTransaction(Long voucherId) {
         try {
             long orderId = redisIdWorker.nextId("order");
             VoucherOrder voucherOrder = new VoucherOrder(orderId, voucherId, UserHolder.getUser().getId());
-            SeckillOrderLocalMessage message = seckillOrderLocalMessageService.createMessage(voucherOrder);
+            SeckillOrderLocalMessage message = seckillOrderLocalMessageService.createNewMessage(voucherOrder);
             Long userId = voucherOrder.getUserId();
             LambdaQueryWrapper<VoucherOrder> queryWrapper = new LambdaQueryWrapper<>();
             queryWrapper.eq(VoucherOrder::getUserId, userId).eq(VoucherOrder::getVoucherId, voucherId);
@@ -95,7 +81,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
                         return null;
                     }
                     log.info("Order created successfully: {}", voucherOrder);
-                    return voucherOrder;
+                    return new Combine<>(voucherOrder, message);
                 } catch (Exception e) {
                     status.setRollbackOnly();
                     log.error("Transaction failed for order creation: ", e);
@@ -135,20 +121,13 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             return Result.fail("purchase failed, you are not eligible.");
         }
         // 创建保存订单和本地消息
-        Optional<VoucherOrder> orderOptional = createNewVoucherOrderTransaction(voucherId);
-        if (orderOptional.isEmpty()) {
+        Optional<Combine<VoucherOrder, SeckillOrderLocalMessage>> orderAndMessage = createNewVoucherOrderTransaction(voucherId);
+        if (orderAndMessage.isEmpty()) {
             return onCreateOrderFailed(voucherId, UserHolder.getUser().getId());
         }
         // 异步发送消息
-        asynchronousSendOrderMessage(orderOptional.get());
-        return Result.ok(orderOptional.get().getId());
-    }
-
-    private void asynchronousSendOrderMessage(VoucherOrder voucherOrder) {
-        executorService.submit(() -> {
-            SeckillOrderLocalMessage message = seckillOrderLocalMessageService.createMessage(voucherOrder);
-            seckillRabbitTemplate.convertAndSend(SECKILL_EXCHANGE, SECKILL_ROUTING_KEY, message, new CorrelationData(message.getMessageId().toString()));
-        });
+        messageQueueService.asynSendSeckillMessage(orderAndMessage.get().second());
+        return Result.ok(orderAndMessage.get().first().getId());
     }
 
     private Result onCreateOrderFailed(Long voucherId, Long userId) {

@@ -29,22 +29,12 @@ public final class MessageConstants {
     // ================= 消息状态 =================
     /** 待发送 */
     public static final int STATUS_PENDING = 0;
-    /** 发送成功 */
-    public static final int STATUS_SEND_SUCCESSFUL = 1;
     /** 发送失败 */
-    public static final int STATUS_SEND_FAILED = 2;
-    /** 接收处理中 */
-    public static final int STATUS_RECEIVE_PROCESSING = 3;
-    /** 接收处理成功 */
-    public static final int STATUS_RECEIVE_PROCESS_SUCCESS = 4;
-    /** 接收处理失败 */
-    public static final int STATUS_RECEIVE_PROCESS_FAILED = 5;
-    /** 消息已过期 */
-    public static final int STATUS_EXPIRED = 6;
-    /** 消息已取消 */
-    public static final int STATUS_CANCELED = 7;
-    /** 等待重试 */
-    public static final int STATUS_WAITING_RETRY = 8;
+    public static final int STATUS_SEND_FAILED = 1;
+    /** 发送成功 */
+    public static final int STATUS_SEND_SUCCESSFUL = 2;
+    /** 需人工处理 */
+    public static final int STATUS_NEED_MANUAL_INTERVENTION = 3;
 
     // ================= 消息优先级 =================
     /** 最低优先级 */
@@ -70,6 +60,8 @@ public final class MessageConstants {
     public static final int DEFAULT_MAX_RETRY_TIMES = 3;
     /** 默认重试间隔(毫秒) */
     public static final long DEFAULT_RETRY_INTERVAL = 5000L;
+    /** 需要人工干预的时间阈值 */
+    public static final long DEFAULT_INTERVENTION_MINUTES = 180;
 
     // ================= 消息队列相关 =================
     /** 默认队列名称 */
