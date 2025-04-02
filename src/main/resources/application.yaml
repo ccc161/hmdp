@@ -4,6 +4,10 @@ spring:
   main:
     keep-alive: true
   threads:
+    core-pool-size: 16
+    max-pool-size: 32
+    keep-alive-seconds: 60
+    queue-capacity: 1024
     virtual:
       enabled: true
   application:
@@ -15,6 +19,11 @@ spring:
     password: root
   jackson:
     default-property-inclusion: non_null # JSON处理时忽略非空字段
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
   data:
     redis:
       host: 127.0.0.1
@@ -29,4 +38,6 @@ mybatis-plus:
   type-aliases-package: com.hmdp.entity # 别名扫描包
 logging:
   level:
-    com.hmdp: debug
+    com.hmdp: DEBUG
+    org.springframework.transaction: DEBUG
+    org.springframework.orm.jpa: DEBUG

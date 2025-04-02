@@ -7,12 +7,13 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.experimental.Accessors;
 
+import javax.management.ConstructorParameters;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 
 /**
  * <p>
- * 
+ *
  * </p>
  *
  * @author 虎哥
@@ -23,6 +24,11 @@ import java.time.LocalDateTime;
 @Accessors(chain = true)
 @TableName("tb_voucher_order")
 public class VoucherOrder implements Serializable {
+    public VoucherOrder(Long id, Long voucherId, long userId) {
+        this.id = id;
+        this.voucherId = voucherId;
+        this.userId = userId;
+    }
 
     private static final long serialVersionUID = 1L;
 

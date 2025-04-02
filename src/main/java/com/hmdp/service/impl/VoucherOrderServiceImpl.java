@@ -1,128 +1,164 @@
 package com.hmdp.service.impl;
 
+import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.dto.Result;
-import com.hmdp.entity.SeckillVoucher;
+import com.hmdp.entity.SeckillOrderLocalMessage;
+import com.hmdp.entity.User;
 import com.hmdp.entity.VoucherOrder;
 import com.hmdp.mapper.VoucherOrderMapper;
+import com.hmdp.service.ISeckillOrderLocalMessageService;
 import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
 import com.hmdp.utils.RedisIdWorker;
 import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.annotation.Lazy;
+import org.springframework.amqp.AmqpException;
+import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.amqp.rabbit.connection.CorrelationData;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
+import org.springframework.transaction.support.TransactionTemplate;
+
 import java.util.Collections;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
+import static com.hmdp.config.RabbitMQConfig.*;
+import static com.hmdp.utils.MessageConstants.*;
+import static com.hmdp.utils.OrderConstants.TYPE_SECKILL;
 
-/**
- * <p>
- *  服务实现类
- * </p>
- *
- * @author 虎哥
- * @since 2021-12-22
- */
 @Service
 @Slf4j
 public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, VoucherOrder> implements IVoucherOrderService {
     @Resource
     StringRedisTemplate stringRedisTemplate;
-    private static final DefaultRedisScript<Long> SECKILL_SCRIPT;
-
-    static {
-        SECKILL_SCRIPT = new DefaultRedisScript<>();
-        SECKILL_SCRIPT.setLocation(new ClassPathResource("seckill.lua"));
-        SECKILL_SCRIPT.setResultType(Long.class);
-    }
-
+    @Resource
+    @Qualifier("seckillRabbitTemplate")
+    private RabbitTemplate seckillRabbitTemplate;
+    @Resource(name = "threadPoolExecutor")
+    private ExecutorService executorService;
+    private static final DefaultRedisScript<Long> REDUCE_STOCK_SCRIPT;
+    private static final DefaultRedisScript<Long> ROLLBACK_STOCK_SCRIPT;
     @Resource
     private RedisIdWorker redisIdWorker;
-
-    private BlockingQueue<VoucherOrder> orderTasks = new ArrayBlockingQueue<>(1024 * 1024);
-
-    private ExecutorService SECKILL_ORDER_EXCUTOR = Executors.newFixedThreadPool(1);
+    @Resource
+    private TransactionTemplate transactionTemplate;
     @Resource
     private VoucherOrderMapper voucherOrderMapper;
-
     @Resource
-    @Lazy
-    IVoucherOrderService voucherOrderService;
+    ISeckillOrderLocalMessageService seckillOrderLocalMessageService;
 
-    @Resource
-    ISeckillVoucherService seckillVoucherService;
+    static {
+        REDUCE_STOCK_SCRIPT = new DefaultRedisScript<>();
+        REDUCE_STOCK_SCRIPT.setLocation(new ClassPathResource("lua/seckill/reduceStock.lua"));
+        REDUCE_STOCK_SCRIPT.setResultType(Long.class);
+        ROLLBACK_STOCK_SCRIPT = new DefaultRedisScript<>();
+        ROLLBACK_STOCK_SCRIPT.setLocation(new ClassPathResource("lua/seckill/rollbackStock.lua"));
+        ROLLBACK_STOCK_SCRIPT.setResultType(Long.class);
+    }
 
-
-    private class SeckillOrderHandler implements Runnable {
-        @Override
-        public void run() {
-            while (true) {
+    private Optional<VoucherOrder> createNewVoucherOrderTransaction(Long voucherId) {
+        try {
+            long orderId = redisIdWorker.nextId("order");
+            VoucherOrder voucherOrder = new VoucherOrder(orderId, voucherId, UserHolder.getUser().getId());
+            SeckillOrderLocalMessage message = seckillOrderLocalMessageService.createMessage(voucherOrder);
+            Long userId = voucherOrder.getUserId();
+            LambdaQueryWrapper<VoucherOrder> queryWrapper = new LambdaQueryWrapper<>();
+            queryWrapper.eq(VoucherOrder::getUserId, userId).eq(VoucherOrder::getVoucherId, voucherId);
+            return Optional.ofNullable(transactionTemplate.execute(status -> {
                 try {
-                    VoucherOrder task = orderTasks.take();
-                    log.debug("start create order task");
-                    voucherOrderService.createVoucherOrder(task);
-                } catch (InterruptedException e) {
-                    log.error("error when process task : {}", e.toString());
+                    Long count = voucherOrderMapper.selectCount(queryWrapper);
+                    if (count > 0) {
+                        // 查询失败，只是查询，没有修改，不需要回滚
+                        log.error("Duplicate purchase detected for user: {}, voucher: {}", userId, voucherId);
+                        return null;
+                    }
+                    if (!save(voucherOrder)) {
+                        // 保存失败，回滚
+                        log.error("Failed to save voucher order: {}", voucherOrder);
+                        status.setRollbackOnly();
+                        return null;
+                    }
+                    // 成功保存订单，还要保存本地消息表
+                    if (!seckillOrderLocalMessageService.save(message)) {
+                        // 保存本地消息失败，回滚
+                        log.error("Failed to save local message for order: {}", voucherOrder);
+                        status.setRollbackOnly();
+                        return null;
+                    }
+                    log.info("Order created successfully: {}", voucherOrder);
+                    return voucherOrder;
+                } catch (Exception e) {
+                    status.setRollbackOnly();
+                    log.error("Transaction failed for order creation: ", e);
+                    return null;
                 }
-            }
+            }));
+        } catch (Exception e) {
+            log.error("Error creating order for voucher: {}", voucherId, e);
+            return Optional.empty();
         }
     }
 
-    @Transactional(rollbackFor = Exception.class)
-    public void createVoucherOrder(VoucherOrder voucherOrder) {
-        Long userId = voucherOrder.getUserId();
-        Long voucherId = voucherOrder.getVoucherId();
-        LambdaQueryWrapper<VoucherOrder> voucherOrderLambdaQueryWrapper = new LambdaQueryWrapper<>();
-        voucherOrderLambdaQueryWrapper.eq(VoucherOrder::getUserId, userId).eq(VoucherOrder::getVoucherId, voucherId);
-        Long count = voucherOrderMapper.selectCount(voucherOrderLambdaQueryWrapper);
-        if (count > 0) {
-            throw new RuntimeException("duplicate purchase when create order.");
+
+    private boolean checkPurchaseEligibility(Long voucherId) {
+        if (voucherId == null) {
+            log.error("voucher id must not be null");
+            return false;
         }
-        boolean isSuccess = seckillVoucherService.update(new LambdaUpdateWrapper<SeckillVoucher>().eq(SeckillVoucher::getVoucherId, voucherOrder.getVoucherId()).gt(SeckillVoucher::getStock, 0).setSql("stock=stock-1"));
-        if (!isSuccess) {
-            throw new RuntimeException("decrease stock failed");
+        if (UserHolder.getUser() == null) {
+            log.error("user must not bu null");
+            return false;
         }
-        save(voucherOrder);
+        int result = stringRedisTemplate.execute(
+                REDUCE_STOCK_SCRIPT,
+                Collections.emptyList(),
+                voucherId.toString(), UserHolder.getUser().getId().toString()).intValue();
+        log.info("REDUCE_STOCK_SCRIPT, userId : {}, voucherId : {}, result : {}", UserHolder.getUser().getId(), voucherId, result);
+        return result == 0;
     }
 
-    @PostConstruct
-    private void init() {
-        SECKILL_ORDER_EXCUTOR.submit(new SeckillOrderHandler());
-    }
 
     @Override
     public Result seckillVoucher(Long voucherId) {
-        // lua 脚本判断购买资格和库存
-        int result = stringRedisTemplate.execute(SECKILL_SCRIPT, Collections.emptyList(), voucherId.toString(), UserHolder.getUser().getId().toString()).intValue();
-        log.debug("lua script result in seckill : {}", result);
-        if (result == 1) {
-            return Result.fail("sold out");
+        // 检查购买资格
+        boolean isEligible = checkPurchaseEligibility(voucherId);
+        if (!isEligible) {
+            return Result.fail("purchase failed, you are not eligible.");
         }
-        if (result == 2) {
-            return Result.fail("duplicate purchase");
+        // 创建保存订单和本地消息
+        Optional<VoucherOrder> orderOptional = createNewVoucherOrderTransaction(voucherId);
+        if (orderOptional.isEmpty()) {
+            return onCreateOrderFailed(voucherId, UserHolder.getUser().getId());
         }
+        // 异步发送消息
+        asynchronousSendOrderMessage(orderOptional.get());
+        return Result.ok(orderOptional.get().getId());
+    }
+
+    private void asynchronousSendOrderMessage(VoucherOrder voucherOrder) {
+        executorService.submit(() -> {
+            SeckillOrderLocalMessage message = seckillOrderLocalMessageService.createMessage(voucherOrder);
+            seckillRabbitTemplate.convertAndSend(SECKILL_EXCHANGE, SECKILL_ROUTING_KEY, message, new CorrelationData(message.getMessageId().toString()));
+        });
+    }
+
+    private Result onCreateOrderFailed(Long voucherId, Long userId) {
+        long result = stringRedisTemplate.execute(ROLLBACK_STOCK_SCRIPT, Collections.emptyList(), voucherId.toString(), userId.toString());
+        log.info("ROLLBACK_STOCK_SCRIPT, userId : {}, voucherId : {}, result : {}", userId, voucherId, result);
         if (result == 0) {
-            Long orderId = redisIdWorker.nextId("order");
-            VoucherOrder voucherOrder = new VoucherOrder();
-            voucherOrder.setId(orderId);
-            voucherOrder.setVoucherId(voucherId);
-            voucherOrder.setUserId(UserHolder.getUser().getId());
-            orderTasks.add(voucherOrder);
-            return Result.ok("orderId:" + orderId);
+            return Result.fail("purchase failed, please try again later");
+        } else {
+            // 如果回滚失败了不重试，直接告诉用户没购买资格
+            return Result.fail("purchase failed, you are not eligible.");
         }
-        return Result.fail("unknown error");
     }
 }

@@ -12,20 +12,20 @@ local orderKey = 'seckill:order:' .. voucherId
 
 --库存是否充足
 --库存不足
-if (tonumber(redis.call('get', stockKey)) <= 0) then
+if (tonumber(redis.call('GET', stockKey)) <= 0) then
     return 1
 end
 
 --判断用户是否下单
 --存在用户 禁止重复下单
-if (tonumber(redis.call('sismember', orderKey, userId)) == 1) then
+if (tonumber(redis.call('SISMEMBER', orderKey, userId)) == 1) then
     return 2
 end
 
 --扣减库存
-redis.call('incrby', stockKey, -1)
+redis.call('INCRBY', stockKey, -1)
 --下单（保存用户）
-redis.call('sadd', orderKey, userId)
+redis.call('SADD', orderKey, userId)
 ----发送消息
 --redis.call('xadd','stream.orders','*','userId',userId,'voucherId',voucherId,'id',id)
 return 0
